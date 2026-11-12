@@ -1785,11 +1785,8 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn is_floating_visible(&self) -> bool {
-        // If the focus is on a fullscreen scrolling window, hide the floating windows.
-        matches!(
-            self.floating_is_active,
-            FloatingActive::Yes | FloatingActive::NoButRaised
-        ) || self.fullscreen_window_above_top_layer().is_none()
+        // Floating windows remain above fullscreen scrolling windows.
+        true
     }
 
     pub fn store_unmap_snapshot_if_empty(

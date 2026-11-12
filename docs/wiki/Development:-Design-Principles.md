@@ -90,8 +90,7 @@ Here are some design considerations for the window layout logic.
     This is a cool idea that scrollable tiling is uniquely positioned to implement.
     Fullscreen windows aren't on some "special" layer that covers everything; instead, they are normal tiles that you can switch away from, without disturbing the fullscreen status.
 
-    Of course, you do want to cover your entire monitor when focused on a fullscreen window.
-    This is specifically hardcoded into the logic: when the view is stationary on a focused fullscreen window, the top layer-shell layer and the floating windows hide away.
+    A focused fullscreen window covers the top layer-shell layer, while floating windows remain visible above it.
 
     This is also why fullscreening a floating window makes it go into the scrolling layout.
 

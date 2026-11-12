@@ -39,8 +39,9 @@ Similarly to maximize-to-edges, windows are aware of their fullscreen status, an
 Niri renders a solid black backdrop behind fullscreen windows.
 This backdrop helps match the screen size when the window itself remains too small (e.g. if you try to fullscreen a fixed-size dialog window), which is the behavior [defined by the Wayland protocol](https://wayland.app/protocols/xdg-shell#xdg_toplevel:request:set_fullscreen).
 
-When a fullscreen window is focused and not animating, it will cover floating windows and the top layer-shell layer.
-If you want for example your layer-shell notifications or launcher to appear over fullscreen windows, configure the respective tools to put them on the overlay layer-shell layer.
+When a fullscreen window is focused and not animating, it covers the top layer-shell layer and floating windows remain visible above it.
+The overlay layer-shell layer also remains above fullscreen windows.
+If you want a launcher to appear over fullscreen windows, configure it to use the overlay layer-shell layer.
 
 ![Screenshot of a fullscreen window.](./img/fullscreen-window.png)
 
