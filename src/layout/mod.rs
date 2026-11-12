@@ -125,6 +125,8 @@ pub type LayoutElementRenderSnapshot =
 pub enum SizingMode {
     Normal,
     Maximized,
+    /// Fills the output without telling the client it is fullscreen.
+    FakeFullscreen,
     Fullscreen,
 }
 
@@ -581,7 +583,7 @@ impl SizingMode {
 
     #[must_use]
     pub fn is_fullscreen(&self) -> bool {
-        matches!(self, Self::Fullscreen)
+        matches!(self, Self::Fullscreen | Self::FakeFullscreen)
     }
 
     #[must_use]
@@ -3565,6 +3567,42 @@ impl<W: LayoutElement> Layout<W> {
                 ws.set_fullscreen(id, is_fullscreen);
                 return;
             }
+        }
+    }
+
+    pub fn set_fake_fullscreen(&mut self, id: &W::Id, fake_fullscreen: bool) {
+        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
+            if move_.tile.window().id() == id {
+                return;
+            }
+        }
+
+        for ws in self.workspaces_mut() {
+            if ws.has_window(id) {
+                ws.set_fake_fullscreen(id, fake_fullscreen);
+                return;
+            }
+        }
+    }
+
+    pub fn toggle_fake_fullscreen(&mut self, id: &W::Id) {
+        let current = self
+            .windows()
+            .find(|(_, window)| window.id() == id)
+            .is_some_and(|(_, window)| window.pending_sizing_mode() == SizingMode::FakeFullscreen);
+        self.set_fake_fullscreen(id, !current);
+    }
+
+    pub fn toggle_smart_fullscreen(&mut self, id: &W::Id) {
+        let prefer_fake = self
+            .windows()
+            .find(|(_, window)| window.id() == id)
+            .is_some_and(|(_, window)| window.rules().prefer_fake_fullscreen.unwrap_or(false));
+
+        if prefer_fake {
+            self.toggle_fake_fullscreen(id);
+        } else {
+            self.toggle_fullscreen(id);
         }
     }
 

@@ -46,6 +46,24 @@ If you want for example your layer-shell notifications or launcher to appear ove
 
 You can make a window open fullscreen, or prevent a window from fullscreening upon opening, with the [`open-fullscreen`](./Configuration:-Window-Rules.md#open-fullscreen) window rule.
 
+### Fake fullscreen
+
+The `smart-fullscreen-window` action can use fake fullscreen for selected windows.
+In this mode, the window fills the output and covers the top layer, while niri leaves the window's own fullscreen state unset. This keeps browser toolbars and other application UI visible.
+
+Set `prefer-fake-fullscreen true` in a matching [window rule](./Configuration:-Window-Rules.md#prefer-fake-fullscreen), then bind the action:
+
+```kdl
+window-rule {
+    match app-id=r#"^(firefox|chromium)$"#
+    prefer-fake-fullscreen true
+}
+
+binds {
+    Mod+Shift+F { smart-fullscreen-window; }
+}
+```
+
 ## Common behaviors across fullscreen and maximize
 
 Fullscreen or maximized-to-edges windows can only be in the scrolling layout.

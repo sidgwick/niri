@@ -172,6 +172,16 @@ pub struct Mapped {
     /// in response yet.
     uncommitted_windowed_fullscreen: Vec<(Serial, bool)>,
 
+    /// Whether the compositor has committed to rendering this window fullscreen without
+    /// advertising fullscreen state to the client.
+    is_fake_fullscreen: bool,
+
+    /// Whether this window is pending fake fullscreen.
+    is_pending_fake_fullscreen: bool,
+
+    /// Pending fake fullscreen updates.
+    uncommitted_fake_fullscreen: Vec<(Serial, bool)>,
+
     /// Whether this window is maximized.
     ///
     /// We have to track this ourselves in addition to the Maximized toplevel state in order to
@@ -308,6 +318,9 @@ impl Mapped {
             is_windowed_fullscreen: false,
             is_pending_windowed_fullscreen: false,
             uncommitted_windowed_fullscreen: Vec::new(),
+            is_fake_fullscreen: false,
+            is_pending_fake_fullscreen: false,
+            uncommitted_fake_fullscreen: Vec::new(),
             is_maximized: false,
             is_pending_maximized: false,
             uncommitted_maximized: Vec::new(),
@@ -778,8 +791,8 @@ impl LayoutElement for Mapped {
         animate: bool,
         transaction: Option<Transaction>,
     ) {
-        // Going into real fullscreen resets windowed fullscreen.
-        if mode == SizingMode::Fullscreen {
+        // Going into compositor fullscreen resets windowed fullscreen.
+        if mode.is_fullscreen() {
             self.is_pending_windowed_fullscreen = false;
 
             if self.is_windowed_fullscreen {
@@ -787,6 +800,18 @@ impl LayoutElement for Mapped {
                 // later on.
                 self.needs_configure = true;
             }
+        }
+
+        let last_sent_fake_fullscreen = self
+            .uncommitted_fake_fullscreen
+            .last()
+            .map(|(_, value)| *value)
+            .unwrap_or(self.is_fake_fullscreen);
+        self.is_pending_fake_fullscreen = mode == SizingMode::FakeFullscreen;
+        if last_sent_fake_fullscreen != self.is_pending_fake_fullscreen {
+            // Fake fullscreen does not necessarily change the xdg state or the requested size,
+            // so make sure there is a configure/commit cycle for the compositor state change.
+            self.needs_configure = true;
         }
 
         self.is_pending_maximized = mode == SizingMode::Maximized;
@@ -799,7 +824,7 @@ impl LayoutElement for Mapped {
             let changed = state.size != Some(size);
             state.size = Some(size);
 
-            if mode.is_fullscreen() || self.is_pending_windowed_fullscreen {
+            if mode == SizingMode::Fullscreen || self.is_pending_windowed_fullscreen {
                 state.states.set(xdg_toplevel::State::Fullscreen);
                 state.states.unset(xdg_toplevel::State::Maximized);
             } else if mode.is_maximized() {
@@ -837,6 +862,16 @@ impl LayoutElement for Mapped {
         self.is_pending_maximized = false;
         if self.is_maximized != self.is_pending_maximized {
             // Make sure we receive a commit to update self.is_maximized later on.
+            self.needs_configure = true;
+        }
+
+        let last_sent_fake_fullscreen = self
+            .uncommitted_fake_fullscreen
+            .last()
+            .map(|(_, value)| *value)
+            .unwrap_or(self.is_fake_fullscreen);
+        self.is_pending_fake_fullscreen = false;
+        if last_sent_fake_fullscreen != self.is_pending_fake_fullscreen {
             self.needs_configure = true;
         }
 
@@ -1147,6 +1182,16 @@ impl LayoutElement for Mapped {
                     .push((serial, self.is_pending_windowed_fullscreen));
             }
 
+            let last_sent_fake_fullscreen = self
+                .uncommitted_fake_fullscreen
+                .last()
+                .map(|(_, value)| *value)
+                .unwrap_or(self.is_fake_fullscreen);
+            if last_sent_fake_fullscreen != self.is_pending_fake_fullscreen {
+                self.uncommitted_fake_fullscreen
+                    .push((serial, self.is_pending_fake_fullscreen));
+            }
+
             // If is_pending_maximized changed compared to the last value that we "sent" to the
             // window, store the configure serial.
             let last_sent_maximized = self
@@ -1172,6 +1217,10 @@ impl LayoutElement for Mapped {
     }
 
     fn sizing_mode(&self) -> SizingMode {
+        if self.is_fake_fullscreen {
+            return SizingMode::FakeFullscreen;
+        }
+
         if self.is_windowed_fullscreen {
             return if self.is_maximized {
                 SizingMode::Maximized
@@ -1199,6 +1248,10 @@ impl LayoutElement for Mapped {
     }
 
     fn pending_sizing_mode(&self) -> SizingMode {
+        if self.is_pending_fake_fullscreen {
+            return SizingMode::FakeFullscreen;
+        }
+
         if self.is_pending_windowed_fullscreen {
             return if self.is_pending_maximized {
                 SizingMode::Maximized
@@ -1416,6 +1469,17 @@ impl LayoutElement for Mapped {
             .retain_mut(|(serial, value)| {
                 if commit_serial.is_no_older_than(serial) {
                     self.is_windowed_fullscreen = *value;
+                    false
+                } else {
+                    true
+                }
+            });
+
+        // "Commit" our compositor-side fake fullscreen state.
+        self.uncommitted_fake_fullscreen
+            .retain_mut(|(serial, value)| {
+                if commit_serial.is_no_older_than(serial) {
+                    self.is_fake_fullscreen = *value;
                     false
                 } else {
                     true

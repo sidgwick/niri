@@ -1018,6 +1018,15 @@ impl<W: LayoutElement> Tile<W> {
         );
     }
 
+    pub fn request_fake_fullscreen(&mut self, animate: bool, transaction: Option<Transaction>) {
+        self.window.request_size(
+            self.view_size.to_i32_round(),
+            SizingMode::FakeFullscreen,
+            animate,
+            transaction,
+        );
+    }
+
     pub fn min_size_nonfullscreen(&self) -> Size<f64, Logical> {
         let mut size = self.window.min_size().to_f64();
 

@@ -318,6 +318,18 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         id: Option<u64>,
     },
+    /// Toggle fullscreen, using the matching window rule to choose real or fake fullscreen.
+    #[cfg_attr(
+        feature = "clap",
+        clap(about = "Toggle smart fullscreen on the focused window")
+    )]
+    SmartFullscreenWindow {
+        /// Id of the window to toggle fullscreen of.
+        ///
+        /// If `None`, uses the focused window.
+        #[cfg_attr(feature = "clap", arg(long))]
+        id: Option<u64>,
+    },
     /// Toggle windowed (fake) fullscreen on a window.
     #[cfg_attr(
         feature = "clap",

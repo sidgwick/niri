@@ -199,6 +199,9 @@ pub struct Column<W: LayoutElement> {
     /// take some time to catch up and actually unfullscreen.
     is_pending_fullscreen: bool,
 
+    /// Whether this column is going to fill the output without fullscreen state on its windows.
+    is_pending_fake_fullscreen: bool,
+
     /// Whether this column is going to be maximized.
     ///
     /// Can be `true` together with `is_pending_fullscreen`, which means that the column is
@@ -2915,7 +2918,9 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             .position(|col| col.contains(window))
             .unwrap();
 
-        if is_fullscreen == self.columns[col_idx].is_pending_fullscreen {
+        if is_fullscreen == self.columns[col_idx].is_pending_fullscreen
+            && !self.columns[col_idx].is_pending_fake_fullscreen
+        {
             return false;
         }
 
@@ -2934,6 +2939,35 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         col.set_fullscreen(is_fullscreen);
 
         // With place_within_column, the tab indicator changes the column size immediately.
+        self.data[col_idx].update(col);
+
+        true
+    }
+
+    pub fn set_fake_fullscreen(&mut self, window: &W::Id, fake_fullscreen: bool) -> bool {
+        let mut col_idx = self
+            .columns
+            .iter()
+            .position(|col| col.contains(window))
+            .unwrap();
+
+        if fake_fullscreen == self.columns[col_idx].is_pending_fake_fullscreen {
+            return false;
+        }
+
+        let mut col = &mut self.columns[col_idx];
+        let is_tabbed = col.display_mode == ColumnDisplay::Tabbed;
+
+        cancel_resize_for_column(&mut self.interactive_resize, col);
+
+        if fake_fullscreen && (col.tiles.len() > 1 && !is_tabbed) {
+            // This wasn't the only window in its column; extract it into a separate column.
+            self.consume_or_expel_window_right(Some(window));
+            col_idx += 1;
+            col = &mut self.columns[col_idx];
+        }
+
+        col.set_fake_fullscreen(fake_fullscreen);
         self.data[col_idx].update(col);
 
         true
@@ -4055,6 +4089,7 @@ impl<W: LayoutElement> Column<W> {
             is_full_width,
             is_pending_maximized: false,
             is_pending_fullscreen: false,
+            is_pending_fake_fullscreen: false,
             display_mode,
             tab_indicator: TabIndicator::new(options.layout.tab_indicator),
             move_x_animation: None,
@@ -4075,6 +4110,7 @@ impl<W: LayoutElement> Column<W> {
         match pending_sizing_mode {
             SizingMode::Normal => (),
             SizingMode::Maximized => rv.set_maximized(true),
+            SizingMode::FakeFullscreen => rv.set_fake_fullscreen(true),
             SizingMode::Fullscreen => rv.set_fullscreen(true),
         }
 
@@ -4267,6 +4303,10 @@ impl<W: LayoutElement> Column<W> {
         self.is_pending_fullscreen
     }
 
+    pub fn is_pending_fake_fullscreen(&self) -> bool {
+        self.is_pending_fake_fullscreen
+    }
+
     pub fn is_pending_maximized(&self) -> bool {
         self.is_pending_maximized
     }
@@ -4274,6 +4314,8 @@ impl<W: LayoutElement> Column<W> {
     pub fn pending_sizing_mode(&self) -> SizingMode {
         if self.is_pending_fullscreen {
             SizingMode::Fullscreen
+        } else if self.is_pending_fake_fullscreen {
+            SizingMode::FakeFullscreen
         } else if self.is_pending_maximized {
             SizingMode::Maximized
         } else {
@@ -4421,17 +4463,21 @@ impl<W: LayoutElement> Column<W> {
         //
         // The logic that satisfies these behaviors is to check if *any* tile is fullscreen.
         let mut any_fullscreen = false;
+        let mut any_fake_fullscreen = false;
         let mut any_maximized = false;
         for tile in &self.tiles {
             match tile.sizing_mode() {
                 SizingMode::Normal => (),
                 SizingMode::Maximized => any_maximized = true,
+                SizingMode::FakeFullscreen => any_fake_fullscreen = true,
                 SizingMode::Fullscreen => any_fullscreen = true,
             }
         }
 
         if any_fullscreen {
             SizingMode::Fullscreen
+        } else if any_fake_fullscreen {
+            SizingMode::FakeFullscreen
         } else if any_maximized {
             SizingMode::Maximized
         } else {
@@ -4480,6 +4526,7 @@ impl<W: LayoutElement> Column<W> {
 
         if self.display_mode != ColumnDisplay::Tabbed {
             self.is_pending_fullscreen = false;
+            self.is_pending_fake_fullscreen = false;
             self.is_pending_maximized = false;
         }
 
@@ -4593,7 +4640,10 @@ impl<W: LayoutElement> Column<W> {
 
     fn update_tile_sizes_with_transaction(&mut self, animate: bool, transaction: Transaction) {
         let sizing_mode = self.pending_sizing_mode();
-        if matches!(sizing_mode, SizingMode::Fullscreen | SizingMode::Maximized) {
+        if matches!(
+            sizing_mode,
+            SizingMode::Fullscreen | SizingMode::FakeFullscreen | SizingMode::Maximized
+        ) {
             for (tile_idx, tile) in self.tiles.iter_mut().enumerate() {
                 // In tabbed mode, only the visible window participates in the transaction.
                 let is_active = tile_idx == self.active_tile_idx;
@@ -4603,10 +4653,15 @@ impl<W: LayoutElement> Column<W> {
                     Some(transaction.clone())
                 };
 
-                if matches!(sizing_mode, SizingMode::Fullscreen) {
-                    tile.request_fullscreen(animate, transaction);
-                } else {
-                    tile.request_maximized(self.parent_area.size, animate, transaction);
+                match sizing_mode {
+                    SizingMode::Fullscreen => tile.request_fullscreen(animate, transaction),
+                    SizingMode::FakeFullscreen => {
+                        tile.request_fake_fullscreen(animate, transaction)
+                    }
+                    SizingMode::Maximized => {
+                        tile.request_maximized(self.parent_area.size, animate, transaction)
+                    }
+                    SizingMode::Normal => unreachable!(),
                 }
             }
             return;
@@ -5259,7 +5314,7 @@ impl<W: LayoutElement> Column<W> {
     }
 
     fn set_fullscreen(&mut self, is_fullscreen: bool) {
-        if self.is_pending_fullscreen == is_fullscreen {
+        if self.is_pending_fullscreen == is_fullscreen && !self.is_pending_fake_fullscreen {
             return;
         }
 
@@ -5268,6 +5323,21 @@ impl<W: LayoutElement> Column<W> {
         }
 
         self.is_pending_fullscreen = is_fullscreen;
+        self.is_pending_fake_fullscreen = false;
+        self.update_tile_sizes(true);
+    }
+
+    fn set_fake_fullscreen(&mut self, fake_fullscreen: bool) {
+        if self.is_pending_fake_fullscreen == fake_fullscreen {
+            return;
+        }
+
+        if fake_fullscreen {
+            assert!(self.tiles.len() == 1 || self.display_mode == ColumnDisplay::Tabbed);
+            self.is_pending_fullscreen = false;
+        }
+
+        self.is_pending_fake_fullscreen = fake_fullscreen;
         self.update_tile_sizes(true);
     }
 
@@ -5351,6 +5421,7 @@ impl<W: LayoutElement> Column<W> {
                 origin.y += self.parent_area.loc.y;
                 return origin;
             }
+            SizingMode::FakeFullscreen => return origin,
             SizingMode::Fullscreen => return origin,
         }
 

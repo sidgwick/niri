@@ -67,6 +67,9 @@ pub struct ResolvedWindowRules {
     /// Whether the window should open fullscreen.
     pub open_fullscreen: Option<bool>,
 
+    /// Whether the smart fullscreen action should use compositor-only fullscreen for this window.
+    pub prefer_fake_fullscreen: Option<bool>,
+
     /// Whether the window should open floating.
     pub open_floating: Option<bool>,
 
@@ -253,6 +256,10 @@ impl ResolvedWindowRules {
 
                 if let Some(x) = rule.open_fullscreen {
                     resolved.open_fullscreen = Some(x);
+                }
+
+                if let Some(x) = rule.prefer_fake_fullscreen {
+                    resolved.prefer_fake_fullscreen = Some(x);
                 }
 
                 if let Some(x) = rule.open_floating {

@@ -1091,6 +1091,22 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
+            Action::SmartFullscreenWindow => {
+                let focus = self.niri.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.niri.layout.toggle_smart_fullscreen(&window);
+                    // FIXME: granular
+                    self.niri.queue_redraw_all();
+                }
+            }
+            Action::SmartFullscreenWindowById(id) => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.niri.find_window_by_id(id) {
+                    self.niri.layout.toggle_smart_fullscreen(&window);
+                    // FIXME: granular
+                    self.niri.queue_redraw_all();
+                }
+            }
             Action::ToggleWindowedFullscreen => {
                 let focus = self.niri.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {

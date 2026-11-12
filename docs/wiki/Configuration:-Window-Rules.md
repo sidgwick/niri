@@ -479,6 +479,19 @@ window-rule {
 }
 ```
 
+#### `prefer-fake-fullscreen`
+
+Choose fake fullscreen for this window when using the `smart-fullscreen-window` action.
+Fake fullscreen fills the output and covers the top layer while leaving the window's own fullscreen state unset, so applications keep their normal interface.
+Windows without this rule use regular fullscreen with the same action.
+
+```kdl
+window-rule {
+    match app-id=r#"^(firefox|chromium)$"#
+    prefer-fake-fullscreen true
+}
+```
+
 #### `open-floating`
 
 <sup>Since: 25.01</sup>

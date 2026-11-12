@@ -1306,6 +1306,11 @@ impl<W: LayoutElement> Workspace<W> {
                 .find(|col| col.contains(window))
                 .unwrap();
 
+            if col.is_pending_fake_fullscreen() {
+                self.set_fake_fullscreen(window, false);
+                return;
+            }
+
             // When going from fullscreen to maximized, don't consider restore_to_floating yet.
             if col.is_pending_fullscreen() && !col.is_pending_maximized() {
                 let (tile, _) = col
@@ -1339,6 +1344,66 @@ impl<W: LayoutElement> Workspace<W> {
         if was_normal && !tile.window().pending_sizing_mode().is_normal() {
             tile.restore_to_floating = restore_to_floating;
         }
+    }
+
+    pub fn set_fake_fullscreen(&mut self, window: &W::Id, fake_fullscreen: bool) {
+        let mut restore_to_floating = false;
+        if self.floating.has_window(window) {
+            if fake_fullscreen {
+                restore_to_floating = true;
+                self.toggle_window_floating(Some(window));
+            } else {
+                // Floating windows are never fake fullscreen.
+                return;
+            }
+        } else if !fake_fullscreen {
+            let col = self
+                .scrolling
+                .columns()
+                .find(|col| col.contains(window))
+                .unwrap();
+
+            // Preserve the floating position when leaving fake fullscreen, unless the window was
+            // maximized before entering it.
+            if col.is_pending_fake_fullscreen() && !col.is_pending_maximized() {
+                let (tile, _) = col
+                    .tiles()
+                    .find(|(tile, _)| tile.window().id() == window)
+                    .unwrap();
+                if tile.restore_to_floating {
+                    self.toggle_window_floating(Some(window));
+                    return;
+                }
+            }
+        }
+
+        let tile = self
+            .scrolling
+            .tiles()
+            .find(|tile| tile.window().id() == window)
+            .unwrap();
+        let was_normal = tile.window().pending_sizing_mode().is_normal();
+
+        self.scrolling.set_fake_fullscreen(window, fake_fullscreen);
+
+        let tile = self
+            .scrolling
+            .tiles_mut()
+            .find(|tile| tile.window().id() == window)
+            .unwrap();
+        if was_normal && !tile.window().pending_sizing_mode().is_normal() {
+            tile.restore_to_floating = restore_to_floating;
+        }
+    }
+
+    pub fn toggle_fake_fullscreen(&mut self, window: &W::Id) {
+        let current = self
+            .tiles()
+            .find(|tile| tile.window().id() == window)
+            .is_some_and(|tile| {
+                tile.window().pending_sizing_mode() == crate::layout::SizingMode::FakeFullscreen
+            });
+        self.set_fake_fullscreen(window, !current);
     }
 
     pub fn toggle_fullscreen(&mut self, window: &W::Id) {

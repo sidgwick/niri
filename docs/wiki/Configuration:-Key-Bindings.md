@@ -324,6 +324,10 @@ Run `niri msg action` to get a full list of actions along with their short descr
 
 Here are a few actions that benefit from more explanation.
 
+#### `smart-fullscreen-window`
+
+Toggle fullscreen for the focused window. If its matching window rules set [`prefer-fake-fullscreen`](./Configuration:-Window-Rules.md#prefer-fake-fullscreen), use fake fullscreen; otherwise use regular fullscreen.
+
 #### `spawn`
 
 Run a program.
