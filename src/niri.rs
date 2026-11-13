@@ -206,6 +206,9 @@ const CLEAR_COLOR_LOCKED: [f32; 4] = [0.3, 0.1, 0.1, 1.];
 // should be ~1.995 seconds.
 const FRAME_CALLBACK_THROTTLE: Option<Duration> = Some(Duration::from_millis(995));
 const FULLSCREEN_LAYER_REVEAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
+// A shared top edge is easy to cross without pausing, so make it wider and faster to trigger.
+const FULLSCREEN_LAYER_REVEAL_INTERNAL_EDGE_SIZE: f64 = 12.;
+const FULLSCREEN_LAYER_REVEAL_INTERNAL_EDGE_DELAY_MS: u16 = 180;
 
 /// Parts of the seat keyboard state that get reset when its keymap is replaced.
 #[derive(Debug, Clone, Copy, Default)]
@@ -919,7 +922,7 @@ impl State {
         let outputs = self.niri.layout.outputs().cloned().collect::<Vec<_>>();
         let mut changed = false;
 
-        for output in outputs {
+        for output in outputs.iter().cloned() {
             let output_geo = self
                 .niri
                 .global_space
@@ -931,7 +934,26 @@ impl State {
                 && local.y >= 0.
                 && local.x < output_geo.size.w
                 && local.y < output_geo.size.h;
-            let pointer_at_edge = in_output && local.y < f64::from(config.edge_size);
+            let pointer_at_internal_edge = in_output
+                && local.y < FULLSCREEN_LAYER_REVEAL_INTERNAL_EDGE_SIZE
+                && outputs.iter().any(|above| {
+                    if above == &output {
+                        return false;
+                    }
+
+                    let Some(above_geo) = self.niri.global_space.output_geometry(above) else {
+                        return false;
+                    };
+                    let above_geo = above_geo.to_f64();
+                    let edges_touch = above_geo.loc.y + above_geo.size.h == output_geo.loc.y;
+                    let x_overlap_start = above_geo.loc.x.max(output_geo.loc.x);
+                    let x_overlap_end = (above_geo.loc.x + above_geo.size.w)
+                        .min(output_geo.loc.x + output_geo.size.w);
+
+                    edges_touch && pointer.x >= x_overlap_start && pointer.x < x_overlap_end
+                });
+            let pointer_at_edge = pointer_at_internal_edge
+                || (in_output && local.y < f64::from(config.edge_size));
             let pointer_over_layer_popup = pointer_contents.output.as_ref() == Some(&output)
                 && pointer_contents
                     .layer
@@ -941,8 +963,13 @@ impl State {
                 || (in_output && local.y < f64::from(config.visible_height));
 
             if let Some(monitor) = self.niri.layout.monitor_for_output_mut(&output) {
+                let mut monitor_config = config;
+                if pointer_at_internal_edge {
+                    monitor_config.show_delay_ms =
+                        FULLSCREEN_LAYER_REVEAL_INTERNAL_EDGE_DELAY_MS;
+                }
                 changed |= monitor.update_fullscreen_layer_reveal(
-                    config,
+                    monitor_config,
                     pointer_at_edge,
                     pointer_keeps_reveal,
                     now,
