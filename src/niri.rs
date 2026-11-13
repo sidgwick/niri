@@ -205,6 +205,7 @@ const CLEAR_COLOR_LOCKED: [f32; 4] = [0.3, 0.1, 0.1, 1.];
 // second, so with the worst timing the maximum interval between two frame callbacks for a surface
 // should be ~1.995 seconds.
 const FRAME_CALLBACK_THROTTLE: Option<Duration> = Some(Duration::from_millis(995));
+const FULLSCREEN_LAYER_REVEAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Parts of the seat keyboard state that get reset when its keymap is replaced.
 #[derive(Debug, Clone, Copy, Default)]
@@ -908,6 +909,51 @@ impl State {
         // Needs to be called after updating the keyboard focus.
         #[cfg(feature = "dbus")]
         self.niri.refresh_a11y();
+    }
+
+    fn update_fullscreen_layer_reveal(&mut self) {
+        let config = self.niri.config.borrow().fullscreen_layer_reveal;
+        let pointer = self.niri.seat.get_pointer().unwrap().current_location();
+        let pointer_contents = self.niri.contents_under(pointer);
+        let now = Instant::now();
+        let outputs = self.niri.layout.outputs().cloned().collect::<Vec<_>>();
+        let mut changed = false;
+
+        for output in outputs {
+            let output_geo = self
+                .niri
+                .global_space
+                .output_geometry(&output)
+                .unwrap()
+                .to_f64();
+            let local = pointer - output_geo.loc;
+            let in_output = local.x >= 0.
+                && local.y >= 0.
+                && local.x < output_geo.size.w
+                && local.y < output_geo.size.h;
+            let pointer_at_edge = in_output && local.y < f64::from(config.edge_size);
+            let pointer_over_layer_popup = pointer_contents.output.as_ref() == Some(&output)
+                && pointer_contents
+                    .layer
+                    .as_ref()
+                    .is_some_and(|surface| matches!(surface.layer(), Layer::Top | Layer::Overlay));
+            let pointer_keeps_reveal = pointer_over_layer_popup
+                || (in_output && local.y < f64::from(config.visible_height));
+
+            if let Some(monitor) = self.niri.layout.monitor_for_output_mut(&output) {
+                changed |= monitor.update_fullscreen_layer_reveal(
+                    config,
+                    pointer_at_edge,
+                    pointer_keeps_reveal,
+                    now,
+                );
+            }
+        }
+
+        if changed {
+            self.niri.queue_redraw_all();
+            self.refresh_pointer_contents();
+        }
     }
 
     /// Stop sessions whose source is gone and sync buffer constraints. Runs as
@@ -2606,6 +2652,15 @@ impl Niri {
 
         let (executor, scheduler) = calloop::futures::executor().unwrap();
         event_loop.insert_source(executor, |_, _, _| ()).unwrap();
+        event_loop
+            .insert_source(
+                Timer::from_duration(FULLSCREEN_LAYER_REVEAL_CHECK_INTERVAL),
+                |_, _, state| {
+                    state.update_fullscreen_layer_reveal();
+                    TimeoutAction::ToDuration(FULLSCREEN_LAYER_REVEAL_CHECK_INTERVAL)
+                },
+            )
+            .unwrap();
 
         let display_handle = display.handle();
         let config_ = config.borrow();

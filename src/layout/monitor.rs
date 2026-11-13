@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::iter::zip;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use niri_config::{CornerRadius, LayoutPart};
 use smithay::backend::renderer::element::utils::{
@@ -89,6 +89,12 @@ pub struct Monitor<W: LayoutElement> {
     pub(super) options: Rc<Options>,
     /// Layout config overrides for this monitor.
     layout_config: Option<niri_config::LayoutPart>,
+    /// Whether the top layer is temporarily shown above a fullscreen window.
+    fullscreen_layer_revealed: bool,
+    /// When the pointer entered the edge trigger area.
+    fullscreen_layer_edge_since: Option<Instant>,
+    /// When the pointer left the revealed bar area and its popups.
+    fullscreen_layer_leave_since: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -347,6 +353,9 @@ impl<W: LayoutElement> Monitor<W> {
             base_options,
             options,
             layout_config,
+            fullscreen_layer_revealed: false,
+            fullscreen_layer_edge_since: None,
+            fullscreen_layer_leave_since: None,
         }
     }
 
@@ -1641,7 +1650,7 @@ impl<W: LayoutElement> Monitor<W> {
         (InsertWorkspace::NewAt(last_idx + 1), dummy)
     }
 
-    pub fn fullscreen_window_above_top_layer(&self) -> Option<&W> {
+    fn fullscreen_window(&self) -> Option<&W> {
         // Render above the top layer only if the view is stationary.
         if self.workspace_switch.is_some() || self.overview_progress.is_some() {
             return None;
@@ -1649,6 +1658,57 @@ impl<W: LayoutElement> Monitor<W> {
 
         let ws = &self.workspaces[self.active_workspace_idx];
         ws.fullscreen_window_above_top_layer()
+    }
+
+    pub fn fullscreen_window_above_top_layer(&self) -> Option<&W> {
+        if self.fullscreen_layer_revealed {
+            return None;
+        }
+
+        self.fullscreen_window()
+    }
+
+    pub fn update_fullscreen_layer_reveal(
+        &mut self,
+        config: niri_config::FullscreenLayerReveal,
+        pointer_at_edge: bool,
+        pointer_keeps_reveal: bool,
+        now: Instant,
+    ) -> bool {
+        let was_revealed = self.fullscreen_layer_revealed;
+
+        if config.off || self.fullscreen_window().is_none() {
+            self.fullscreen_layer_revealed = false;
+            self.fullscreen_layer_edge_since = None;
+            self.fullscreen_layer_leave_since = None;
+            return was_revealed;
+        }
+
+        if self.fullscreen_layer_revealed {
+            self.fullscreen_layer_edge_since = None;
+            if pointer_keeps_reveal {
+                self.fullscreen_layer_leave_since = None;
+            } else {
+                let since = *self.fullscreen_layer_leave_since.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_millis(config.hide_delay_ms.into()) {
+                    self.fullscreen_layer_revealed = false;
+                    self.fullscreen_layer_leave_since = None;
+                }
+            }
+        } else {
+            self.fullscreen_layer_leave_since = None;
+            if pointer_at_edge {
+                let since = *self.fullscreen_layer_edge_since.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_millis(config.show_delay_ms.into()) {
+                    self.fullscreen_layer_revealed = true;
+                    self.fullscreen_layer_edge_since = None;
+                }
+            } else {
+                self.fullscreen_layer_edge_since = None;
+            }
+        }
+
+        was_revealed != self.fullscreen_layer_revealed
     }
 
     pub fn render_above_top_layer(&self) -> bool {

@@ -2,6 +2,60 @@ use crate::appearance::{Color, WorkspaceShadow, WorkspaceShadowPart, DEFAULT_BAC
 use crate::utils::{Flag, MergeWith};
 use crate::FloatOrInt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FullscreenLayerReveal {
+    pub off: bool,
+    pub edge_size: u16,
+    pub visible_height: u16,
+    pub show_delay_ms: u16,
+    pub hide_delay_ms: u16,
+}
+
+impl Default for FullscreenLayerReveal {
+    fn default() -> Self {
+        Self {
+            off: true,
+            edge_size: 2,
+            visible_height: 45,
+            show_delay_ms: 400,
+            hide_delay_ms: 500,
+        }
+    }
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct FullscreenLayerRevealPart {
+    #[knuffel(child)]
+    pub off: bool,
+    #[knuffel(child)]
+    pub on: bool,
+    #[knuffel(child, unwrap(argument))]
+    pub edge_size: Option<u16>,
+    #[knuffel(child, unwrap(argument))]
+    pub visible_height: Option<u16>,
+    #[knuffel(child, unwrap(argument))]
+    pub show_delay_ms: Option<u16>,
+    #[knuffel(child, unwrap(argument))]
+    pub hide_delay_ms: Option<u16>,
+}
+
+impl MergeWith<FullscreenLayerRevealPart> for FullscreenLayerReveal {
+    fn merge_with(&mut self, part: &FullscreenLayerRevealPart) {
+        self.off |= part.off;
+        if part.on {
+            self.off = false;
+        }
+
+        merge_clone!(
+            (self, part),
+            edge_size,
+            visible_height,
+            show_delay_ms,
+            hide_delay_ms,
+        );
+    }
+}
+
 #[derive(knuffel::Decode, Debug, Clone, PartialEq, Eq)]
 pub struct SpawnAtStartup {
     #[knuffel(arguments)]

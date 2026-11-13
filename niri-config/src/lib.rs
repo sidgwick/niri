@@ -83,6 +83,7 @@ pub struct Config {
     pub blur: Blur,
     pub gestures: Gestures,
     pub overview: Overview,
+    pub fullscreen_layer_reveal: FullscreenLayerReveal,
     pub environment: Environment,
     pub xwayland_satellite: XwaylandSatellite,
     pub window_rules: Vec<WindowRule>,
@@ -204,6 +205,7 @@ where
                 "blur" => m_merge!(blur),
                 "gestures" => m_merge!(gestures),
                 "overview" => m_merge!(overview),
+                "fullscreen-layer-reveal" => m_merge!(fullscreen_layer_reveal),
                 "xwayland-satellite" => m_merge!(xwayland_satellite),
                 "switch-events" => m_merge!(switch_events),
                 "debug" => m_merge!(debug),
@@ -2212,6 +2214,13 @@ mod tests {
                         a: 0.3137255,
                     },
                 },
+            },
+            fullscreen_layer_reveal: FullscreenLayerReveal {
+                off: true,
+                edge_size: 2,
+                visible_height: 45,
+                show_delay_ms: 400,
+                hide_delay_ms: 500,
             },
             environment: Environment(
                 [
